@@ -1,0 +1,12 @@
+#!/bin/sh
+SSH_AUTH_SOCKET=
+export SSH_AUTH_SOCKET=
+exec ssh -q \
+  -oStrictHostKeyChecking=no \
+  -oPasswordAuthentication=no \
+  -oKbdInteractiveAuthentication=no \
+  -oChallengeResponseAuthentication=no \
+  -oConnectTimeout=120 \
+  -i ${HOME}/.ssh/id_rsa \
+  $*
+
