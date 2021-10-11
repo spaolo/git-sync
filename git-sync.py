@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 import os,sys,fcntl,syslog,\
-	time,subprocess
+	time,subprocess,yaml,optparse
 
 program_opt={
 	'log_level'         : 10,
@@ -8,11 +8,24 @@ program_opt={
 	'verbose'           : 1,
 	'show_help'         : 0,
 	'spool_base'        : "/opt/git-sync",
+	'config_file'       : "/home/git-sync/git-sync.yaml",
 	'git_site'          : 'git@github.com:spaolo/git-sync.git',
 	'git_user_home'     : '/home/git-sync/',
-	'repo_spool'        :  'git-sync'
-	
+	'repo_spool'        : 'git-sync'
 }
+
+with open(program_opt['config_file'], 'r') as stream:
+    try:
+        config_file_opt=yaml.safe_load(stream)
+    except yaml.YAMLError as exc:
+        print(exc)
+    stream.close()
+
+#merge config on default
+for keyword in program_opt.keys():
+	if keyword in config_file_opt.keys():
+		program_opt[keyword]=config_file_opt[keyword]
+
 #program_opt['dry_run']=0
 #program_opt['trigger_reload']=0
 
@@ -28,8 +41,7 @@ git_root=program_opt['spool_base'] + '/' +program_opt['repo_spool']
 # GetOptions(
 # 	"verbose|v" => \$verbose,
 # 	"debug|d"   => \$debug,
-# 	"base|b"    => \$program_opt[''],
-# 	"dry-run|n" => \$dry_run,
+# 	"base|b"    => \$program_opt['spool_base'],
 # 	"help|h"    => \$help
 # )
 
@@ -38,7 +50,6 @@ if program_opt['show_help']:
 	print("      -v|--verbose  show more detail")
 	print("      -d|--debug    show relevant steps")
 	print("      -b|--base     use a different basedir (" + program_opt[''] +")")
-	print("      -n|--dry-run  mimic only, skip witing infoblox")
 	print("      -h|--help     shows help")
 	sys.exit(0)
 
