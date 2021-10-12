@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import os,sys,fcntl,syslog,\
-	time,subprocess,yaml,optparse
+	time,subprocess,yaml,optparse, \
+        shutil
 
 program_opt={
 	'log_level'         : 10,
@@ -11,9 +12,14 @@ program_opt={
 	'config_file'       : "/home/git-sync/git-sync.yaml",
 	'git_site'          : 'git@github.com:spaolo/git-sync.git',
 	'git_user_home'     : '/home/git-sync/',
+        'git_author_name'   : 'Author Name',
+        'git_author_mail'   : 'author@example.com',
+        'git_commit_prefix' : 'commited at',
 	'repo_spool'        : 'git-sync'
 }
+optional_config_keys=[ 'push_dir', 'push_map' ]
 
+#override default configs
 with open(program_opt['config_file'], 'r') as stream:
     try:
         config_file_opt=yaml.safe_load(stream)
@@ -23,6 +29,11 @@ with open(program_opt['config_file'], 'r') as stream:
 
 #merge config on default
 for keyword in program_opt.keys():
+	if keyword in config_file_opt.keys():
+		program_opt[keyword]=config_file_opt[keyword]
+
+#load optional confs
+for keyword in optional_config_keys:
 	if keyword in config_file_opt.keys():
 		program_opt[keyword]=config_file_opt[keyword]
 
@@ -87,7 +98,7 @@ def log_message(level,message,too=''):
   if level < program_opt['log_level']:
     syslog.syslog(myself+': '+message)
     if program_opt['verbose'] > 0:
-      print (message+' '+too) 
+      print (message+' '+too)
 
 def log_and_die(error_message):
   log_message(0,error_message)
@@ -109,7 +120,7 @@ def git_clone(git_root,git_site):
 	
 
 def git_revparse(git_root,git_branch):
-	#branch_ref=`$git_cmd rev-parse $git_quiet_flag $git_branch`
+	os.chdir(git_root)
 	#FIXME add a proper way to handle git_quiet_flag
 	branch_ref = 'none'
 	if program_opt['log_level'] < program_opt['git_verbose_level']:
@@ -117,6 +128,7 @@ def git_revparse(git_root,git_branch):
 	else:
 		branch_ref = subprocess.check_output([git_cmd, 'rev-parse', git_branch ])
 	#FIXME
+        # handle error on output basis
 	# if os.waitstatus_to_exitcode(sys_rc) == 1:
 	# 	log_and_die("git rev-parse " + git_branch + " failed")
 	# else:
@@ -124,20 +136,22 @@ def git_revparse(git_root,git_branch):
 
 	return branch_ref
 
-def git_add_file(git_root,add_file,author_string,commit_message):
-
+def git_add_file(git_root,add_file):
+	os.chdir(git_root)
 	sys_rc=os.system(git_cmd + ' add ' + add_file)
-
 	if (sys_rc>>8) == 1:
 		log_and_die("git add " + add_file + " failed")
 	else:
 		log_message(5,"git add "+ add_file+" ok")
 
-	sys_rc=os.system( git_cmd + ' commit ' + git_quiet_flag + ' --author "' + author_string + '" -m "' + commit_message + '"')
-	if (sys_rc>>8) == 1:
-		log_and_die("git commit " + add_file + " failed")
-	else:
-		log_message(5,"git commit " + add_file + "ok")
+def git_commit(git_root,author_string,commit_message):
+        os.chdir(git_root)
+        print(git_cmd + ' commit ' + git_quiet_flag + ' --author "' + author_string + '" -m "' + commit_message + '"')
+        sys_rc=os.system( git_cmd + ' commit ' + git_quiet_flag + ' --author "' + author_string + '" -m "' + commit_message + '"')
+        if (sys_rc>>8) == 1:
+               log_and_die("git commit failed")
+        else:
+               log_message(5,"git commit ok")
 
 def git_push(git_root):
 	os.chdir(git_root)
@@ -148,6 +162,7 @@ def git_push(git_root):
 		log_message(5,"git push ok")
 
 def git_fetch_spool(git_root,git_remote,git_branch):
+	os.chdir(git_root)
 	sys_rc=os.system( git_cmd + ' fetch' + git_quiet_flag)
 	if (sys_rc>>8) == 1:
 		log_and_die("git fetch " + git_root + " failed")
@@ -157,9 +172,9 @@ def git_fetch_spool(git_root,git_remote,git_branch):
 	changed = 1 if git_check_sync(git_root,git_remote,git_branch) == 1 else 0
 	sys_rc=os.system(git_cmd + ' reset ' + git_quiet_flag + '--hard ' + git_remote + '/' + git_branch)
 	if (sys_rc>>8) == 1:
-		log_and_die("git reset " + git_root + "failed")
+		log_and_die("git reset " + git_root + " failed")
 	else:
-		log_message(5,"git reset " + git_root +"ok")
+		log_message(5,"git reset " + git_root +" ok")
 	return changed
 
 def git_prep_spool(git_root,git_site,git_remote,git_revision):
@@ -201,22 +216,78 @@ def git_check_branch(git_root,git_revision):
 	else:
 		return 0
 
-
 #######################################################################################################
 #}git libs
 #######################################################################################################
-
 #######################################################################################################
 #{defs and utils
 #######################################################################################################
 
 def time_daystring(to_cnv):
-	now_string=time.strftime("%Y%m%d%H%M%S", to_cnv)
+	now_string=to_cnv.strftime("%Y%m%d%H%M%S")
 	return now_string
 #
 #######################################################################################################
 #}defs and utils
 #######################################################################################################
+#######################################################################################################
+#{sync libs
+#######################################################################################################
+def push_element(percorso):
+    dirname=os.path.dirname(percorso)
+    print(percorso)
+    print(dirname)
+
+    src_path=os.path.join(program_opt['push_dir'],percorso)
+    src_dirname=os.path.join(program_opt['push_dir'],dirname)
+    dst_path=os.path.join(git_root,percorso)
+    dst_dirname=os.path.join(git_root,dirname)
+
+    if os.path.isfile(src_path):
+        #create remote remote basendir
+
+        os.makedirs(dst_dirname, exist_ok=True)
+        #copy file
+        print ("mkdir "+dst_dirname)
+        print ("copy "+src_path+' '+dst_path)
+        shutil.copyfile(src_path,dst_path)
+        #add to git
+        git_add_file(git_root,percorso)
+
+    elif os.path.isdir(src_path):
+        print ("mkdir "+dst_path)
+        os.makedirs(dst_path, exist_ok=True)
+        #add all files
+        for src_f in os.listdir(src_path):
+            if os.path.isfile(os.path.join(src_path,src_f)):
+                shutil.copyfile( os.path.join(src_path,src_f),os.path.join(dst_path,src_f) )
+                git_add_file(git_root,os.path.join(percorso,src_f))
+    else:
+        log_message(0,"original file %s missing" % src_path)
+
+def push_phase():
+    if 'push_dir' in program_opt.keys():
+        log_message(2,"pushing dir %s" % program_opt['push_dir'])
+
+        if 'push_map' not in program_opt.keys():
+            log_message(2,"no push_map to push")
+            return 0
+
+        changed_cnt=0
+        for push_elem in program_opt['push_map']:
+            log_message(2,"pushing elem %s" % push_elem)
+            push_element(push_elem)
+        print(time_daystring(time))
+        author_string="'%s' <%s>" % (program_opt['git_author_name'],program_opt['git_author_mail'])
+        commit_message="%s %s" % (program_opt['git_commit_prefix'],time_daystring(time))
+        git_commit(git_root, author_string, commit_message)
+    else:
+        log_message(2,"no push_dir defined")
+
+#######################################################################################################
+#}sync libs
+#######################################################################################################
+
 #######################################################################################################
 #######################################################################################################
 
@@ -232,10 +303,14 @@ except IOError:
 log_message(0,'sync start')
 #daystring=time_daystring(time)
 
-log_message(0,'pull git')
+log_message(0,'git pull...')
 print(git_root)
 changed=git_prep_spool(git_root,program_opt['git_site'],git_remote,git_revision)
-log_message(0,'sync complete')
+log_message(0,'pull complete')
+log_message(0,'git add commit push...')
+push_phase()
+log_message(0,'push complete')
+
 
 fcntl.flock(lock_fh.fileno(),fcntl.LOCK_UN);
 lock_fh.close()
