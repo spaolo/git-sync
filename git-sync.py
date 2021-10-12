@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 import os,sys,fcntl,syslog,\
 	time,subprocess,yaml,optparse, \
-        shutil
+        shutil,filecmp
 
 program_opt={
 	'log_level'         : 10,
@@ -146,7 +146,7 @@ def git_add_file(git_root,add_file):
 
 def git_commit(git_root,author_string,commit_message):
         os.chdir(git_root)
-        print(git_cmd + ' commit ' + git_quiet_flag + ' --author "' + author_string + '" -m "' + commit_message + '"')
+        #print(git_cmd + ' commit ' + git_quiet_flag + ' --author "' + author_string + '" -m "' + commit_message + '"')
         sys_rc=os.system( git_cmd + ' commit ' + git_quiet_flag + ' --author "' + author_string + '" -m "' + commit_message + '"')
         if (sys_rc>>8) == 1:
                log_and_die("git commit failed")
@@ -233,10 +233,19 @@ def time_daystring(to_cnv):
 #######################################################################################################
 #{sync libs
 #######################################################################################################
-def push_element(percorso):
+def need_update(src_path,dst_path):
+    if not os.path.isfile(dst_path):
+        log_message(2,"need_update: %s new file" % dst_path)
+        return True
+    elif filecmp.cmp(src_path,dst_path):
+        log_message(2,"need_update: %s up to date" % dst_path)
+        return False
+    else:
+        log_message(2,"need_update: %s changed" % dst_path)
+        return True
+   
+def add_element(percorso):
     dirname=os.path.dirname(percorso)
-    print(percorso)
-    print(dirname)
 
     src_path=os.path.join(program_opt['push_dir'],percorso)
     src_dirname=os.path.join(program_opt['push_dir'],dirname)
@@ -245,22 +254,23 @@ def push_element(percorso):
 
     if os.path.isfile(src_path):
         #create remote remote basendir
-
         os.makedirs(dst_dirname, exist_ok=True)
-        #copy file
-        print ("mkdir "+dst_dirname)
-        print ("copy "+src_path+' '+dst_path)
-        shutil.copyfile(src_path,dst_path)
-        #add to git
-        git_add_file(git_root,percorso)
+        #check if differs
+        if need_update(src_path,dst_path):
+            #copy file
+            shutil.copyfile(src_path,dst_path)
+            #add to git
+            git_add_file(git_root,percorso)
 
     elif os.path.isdir(src_path):
-        print ("mkdir "+dst_path)
         os.makedirs(dst_path, exist_ok=True)
-        #add all files
+        #consider all files
         for src_f in os.listdir(src_path):
-            if os.path.isfile(os.path.join(src_path,src_f)):
-                shutil.copyfile( os.path.join(src_path,src_f),os.path.join(dst_path,src_f) )
+            #shorthand for source and dest
+            src_subpath=os.path.join(src_path,src_f)
+            dst_subpath=os.path.join(dst_path,src_f)
+            if os.path.isfile(src_subpath) and need_update(src_subpath,dst_subpath):
+                shutil.copyfile(src_subpath,dst_subpath)
                 git_add_file(git_root,os.path.join(percorso,src_f))
     else:
         log_message(0,"original file %s missing" % src_path)
@@ -275,12 +285,13 @@ def push_phase():
 
         changed_cnt=0
         for push_elem in program_opt['push_map']:
-            log_message(2,"pushing elem %s" % push_elem)
-            push_element(push_elem)
-        print(time_daystring(time))
+            log_message(2,"add element %s" % push_elem)
+            add_element(push_elem)
+        #print(time_daystring(time))
         author_string="'%s' <%s>" % (program_opt['git_author_name'],program_opt['git_author_mail'])
         commit_message="%s %s" % (program_opt['git_commit_prefix'],time_daystring(time))
         git_commit(git_root, author_string, commit_message)
+        git_push(git_root)
     else:
         log_message(2,"no push_dir defined")
 
