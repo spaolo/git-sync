@@ -17,7 +17,7 @@ program_opt={
         'git_commit_prefix' : 'commited at',
         'repo_spool'        : 'git-sync'
 }
-optional_config_keys=[ 'push_dir', 'push_map' ]
+optional_config_keys=[ 'push_map' ]
 
 opt_obj = optparse.OptionParser()
 opt_obj.add_option("-c", "--config",
@@ -149,6 +149,7 @@ def git_add_file(git_root,add_file):
 def git_commit(git_root,author_string,commit_message):
         os.chdir(git_root)
         git_commit_cmd=git_suppress_out(git_cmd + ' commit ' + git_quiet_flag + ' --author "' + author_string + '" -m "' + commit_message + '"')
+        print(git_commit_cmd)
         sys_rc=os.system( git_commit_cmd )
 
         if (sys_rc>>8) == 1:
@@ -253,14 +254,18 @@ def need_update(src_path,dst_path):
         log_message(2,"need_update: %s changed" % dst_path)
         return True
    
-def add_element(percorso):
-    dirname=os.path.dirname(percorso)
+def add_element(push_base,dest_prefix,push_element):
+    '''
+    push a single leaf of a tree
+    '''
+    dirname=os.path.dirname(push_element)
 
-    src_path=os.path.join(program_opt['push_dir'],percorso)
-    src_dirname=os.path.join(program_opt['push_dir'],dirname)
-    dst_path=os.path.join(git_root,percorso)
-    dst_dirname=os.path.join(git_root,dirname)
+    src_path=os.path.join(push_base,push_element)
+    src_dirname=os.path.join(push_base,dirname)
+    dst_path=os.path.join(git_root,dest_prefix+push_element)
+    dst_dirname=os.path.join(git_root,dest_prefix+dirname)
 
+    return_changed=False
     if os.path.isfile(src_path):
         #create remote remote basendir
         os.makedirs(dst_dirname, exist_ok=True)
@@ -269,7 +274,8 @@ def add_element(percorso):
             #copy file
             shutil.copyfile(src_path,dst_path)
             #add to git
-            git_add_file(git_root,percorso)
+            git_add_file(git_root,push_element)
+            return_changed=True
 
     elif os.path.isdir(src_path):
         os.makedirs(dst_path, exist_ok=True)
@@ -280,28 +286,54 @@ def add_element(percorso):
             dst_subpath=os.path.join(dst_path,src_f)
             if os.path.isfile(src_subpath) and need_update(src_subpath,dst_subpath):
                 shutil.copyfile(src_subpath,dst_subpath)
-                git_add_file(git_root,os.path.join(percorso,src_f))
+                git_add_file(git_root,os.path.join(push_element,src_f))
+                return_changed=True
     else:
         log_message(0,"original file %s missing" % src_path)
+    return return_changed
+
+def push_schema(schema_name,schema_to_push):
+    '''
+    push a single tree
+    '''
+    if 'push_dir' not in schema_to_push.keys():
+        log_message(2,"schema %s no push_dir defined" % schema_name)
+        return
+    dest_prefix=''
+    if 'prepend_dir_basename' in schema_to_push.keys() and schema_to_push['prepend_dir_basename']:
+        dest_prefix=os.path.basename(schema_to_push['push_dir'])+'/'
+
+    log_message(2,"schema %s pushing dir %s" % (schema_name,schema_to_push['push_dir']) )
+
+    return_changed=False
+    if 'push_files' not in schema_to_push.keys():
+        log_message(2,"schema %s no push_files to push" % schema_name)
+    else:
+        for push_elem in schema_to_push['push_files']:
+            log_message(2,"schema %s add element %s" % (schema_name,push_elem) )
+            if add_element(schema_to_push['push_dir'],dest_prefix,push_elem):
+                return_changed=True
+        author_string="'%s' <%s>" % (program_opt['git_author_name'],program_opt['git_author_mail'])
+        commit_message="%s %s %s" % (program_opt['git_commit_prefix'],schema_name,time_daystring(time))
+        if return_changed:
+            git_commit(git_root, author_string, commit_message)
+            git_push(git_root)
+    #final return
+    return return_changed
 
 def push_phase():
-    if 'push_dir' in program_opt.keys():
-        log_message(2,"pushing dir %s" % program_opt['push_dir'])
+    '''
+    list push_map and pass it to single tree schema pusher
+    '''
+    if 'push_map' not in program_opt.keys():
+        log_message(2,"push_phase: push_map nor defined")
+        return
+    print (program_opt['push_map'].keys())
+    for schema_name in program_opt['push_map'].keys():
+        print(schema_name)
+        push_schema(schema_name,program_opt['push_map'][schema_name])
+        print(schema_name+"finito")
 
-        if 'push_map' not in program_opt.keys():
-            log_message(2,"no push_map to push")
-            return 0
-
-        changed_cnt=0
-        for push_elem in program_opt['push_map']:
-            log_message(2,"add element %s" % push_elem)
-            add_element(push_elem)
-        author_string="'%s' <%s>" % (program_opt['git_author_name'],program_opt['git_author_mail'])
-        commit_message="%s %s" % (program_opt['git_commit_prefix'],time_daystring(time))
-        git_commit(git_root, author_string, commit_message)
-        git_push(git_root)
-    else:
-        log_message(2,"no push_dir defined")
 
 #######################################################################################################
 #}sync libs
