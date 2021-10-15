@@ -313,11 +313,6 @@ def push_schema(schema_name,schema_to_push):
             log_message(2,"schema %s add element %s" % (schema_name,push_elem) )
             if add_element(schema_to_push['push_dir'],dest_prefix,push_elem):
                 return_changed=True
-        author_string="'%s' <%s>" % (program_opt['git_author_name'],program_opt['git_author_mail'])
-        commit_message="%s %s %s" % (program_opt['git_commit_prefix'],schema_name,time_daystring(time))
-        if return_changed:
-            git_commit(git_root, author_string, commit_message)
-            git_push(git_root)
     #final return
     return return_changed
 
@@ -328,11 +323,16 @@ def push_phase():
     if 'push_map' not in program_opt.keys():
         log_message(2,"push_phase: push_map nor defined")
         return
-    print (program_opt['push_map'].keys())
+    return_changed=False
     for schema_name in program_opt['push_map'].keys():
-        print(schema_name)
-        push_schema(schema_name,program_opt['push_map'][schema_name])
-        print(schema_name+"finito")
+        if push_schema(schema_name,program_opt['push_map'][schema_name]):
+            return_changed=True
+
+    if return_changed:
+        author_string="'%s' <%s>" % (program_opt['git_author_name'],program_opt['git_author_mail'])
+        commit_message="%s %s" % (program_opt['git_commit_prefix'],time_daystring(time))
+        git_commit(git_root, author_string, commit_message)
+        git_push(git_root)
 
 
 #######################################################################################################
