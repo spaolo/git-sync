@@ -143,11 +143,13 @@ def git_revparse(git_root,git_branch):
         '''
         os.chdir(git_root)
         #FIXME add a proper way to handle git_quiet_flag
-        branch_ref = 'none'
+        return_val = 'none'
         if program_opt['log_level'] < program_opt['git_verbose_level']:
                 branch_ref = subprocess.check_output([git_cmd, 'rev-parse', '--quiet', git_branch ])
         else:
                 branch_ref = subprocess.check_output([git_cmd, 'rev-parse', git_branch ])
+
+        return_val=branch_ref.decode("utf-8").rstrip()
         #FIXME
         # handle error on output basis
         # if os.waitstatus_to_exitcode(sys_rc) == 1:
@@ -155,7 +157,7 @@ def git_revparse(git_root,git_branch):
         # else:
         #         log_message(5,"git rev-parse "+ git_branch+ " returned "+ branch_ref)
 
-        return branch_ref
+        return return_val
 
 def git_add_file(git_root,add_file):
         '''
@@ -176,7 +178,6 @@ def git_commit(git_root,author_string,commit_message):
         '''
         os.chdir(git_root)
         git_commit_cmd=git_suppress_out(git_cmd + ' commit ' + git_quiet_flag + ' --author "' + author_string + '" -m "' + commit_message + '"')
-        print(git_commit_cmd)
         sys_rc=os.system( git_commit_cmd )
 
         if (sys_rc>>8) == 1:
@@ -197,6 +198,7 @@ def git_push(git_root):
         else:
                 log_message(5,"git push ok")
 
+
 def git_fetch_spool(git_root,git_remote,git_branch):
         '''
         Sync an existing local repo dir
@@ -209,39 +211,36 @@ def git_fetch_spool(git_root,git_remote,git_branch):
         else:
                 log_message(5,"git fetch " + git_root +" ok")
         #set changed not synked for return
-        changed = 1 if git_check_sync(git_root,git_remote,git_branch) == 1 else 0
-
-        git_reset_cmd=git_suppress_out(git_cmd + ' fetch' + git_quiet_flag)
+        git_reset_cmd=git_suppress_out(git_cmd+' reset '+git_quiet_flag+'--hard '+git_remote+'/'+git_branch)
         sys_rc=os.system(git_reset_cmd)
 
         if (sys_rc>>8) == 1:
                 log_and_die("git reset " + git_root + " failed")
         else:
                 log_message(5,"git reset " + git_root +" ok")
-        return changed
 
 def git_prep_spool(git_root,git_site,git_remote,git_revision):
         '''
         Prepare spool directory with the latest up to date version
         '''
         os.chdir(program_opt['spool_base'])
-        changed=0
+        changed=False
         if os.path.isdir(git_root+'/.git'):
                 os.chdir(git_root)
                 #spool is present fetch and update
-                changed=git_fetch_spool(git_root,git_remote,git_revision)
-                if git_check_sync(git_root,git_remote,git_revision) == 0 :
+                git_fetch_spool(git_root,git_remote,git_revision)
+                if not git_check_sync(git_root,git_remote,git_revision):
                         log_message(5,"git spool out of sync rebuild")
                         os.rename(git_root, git_root+'.'+ str(time.time()))
                         os.makedirs(git_root, exist_ok=True)
                         os.chdir(git_root)
                         git_clone(git_root,git_site)
-                        return 1
-                return changed
+                        changed=True
         else:
                 git_clone(git_root,git_site)
                 changed=git_fetch_spool(git_root,git_remote,git_revision)
-                return 1
+                changed=True
+        return changed
 
 
 def git_check_sync(git_root,git_remote,git_revision):
@@ -251,11 +250,12 @@ def git_check_sync(git_root,git_remote,git_revision):
         os.chdir(git_root)
         local_commit=git_revparse(git_root,git_revision)
         remote_commit=git_revparse(git_root,git_remote + '/' + git_revision)
+        log_message(15,"local_commit %s remote_commit %s" %( local_commit, remote_commit)) 
 
         if ( local_commit == remote_commit ):
-                return 1
+                return True
         else:
-                return 0
+                return False
 
 def git_check_branch(git_root,git_revision):
         '''
