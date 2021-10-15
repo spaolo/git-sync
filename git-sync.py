@@ -2,6 +2,9 @@
 import os,sys,fcntl,syslog,\
         time,subprocess,yaml,optparse, \
         shutil,filecmp
+#######################################################################################################
+#{default config 
+#######################################################################################################
 
 program_opt={
         'log_level'         : 10,
@@ -11,6 +14,8 @@ program_opt={
         'spool_base'        : "/opt/git-sync",
         'config_file'       : "/home/git-sync/git-sync.yaml",
         'git_site'          : 'git@github.com:spaolo/git-sync.git',
+        'git_cmd'           : 'git',
+        'git_revision'      : 'master',
         'git_user_home'     : '/home/git-sync/',
         'git_author_name'   : 'Author Name',
         'git_author_mail'   : 'author@example.com',
@@ -18,7 +23,12 @@ program_opt={
         'repo_spool'        : 'git-sync'
 }
 optional_config_keys=[ 'push_map' ]
-
+#######################################################################################################
+#}default config 
+#######################################################################################################
+#######################################################################################################
+#{config first stage
+#######################################################################################################
 opt_obj = optparse.OptionParser()
 opt_obj.add_option("-c", "--config",
                   dest="config_file",
@@ -32,10 +42,8 @@ opt_obj.add_option("-v", "--verbose",
                   default=False,
                   help="don't print status messages to stdout")
 
-(cli_opt, args) = opt_obj.parse_args()
-#program_opt['config_file']=cli_opt.config_file()
-
 #override default configs
+(cli_opt, args) = opt_obj.parse_args()
 with open(cli_opt.config_file, 'r') as stream:
     try:
         config_file_opt=yaml.safe_load(stream)
@@ -57,13 +65,19 @@ for keyword in optional_config_keys:
 if cli_opt.verbose:
     program_opt['verbose']=True
 
+#######################################################################################################
+#}config first stage
+#######################################################################################################
+#######################################################################################################
+#{config second stage
+#######################################################################################################
+myself=os.path.basename(sys.argv[0])
 myself=os.path.basename(sys.argv[0])
 syslog.openlog(myself,syslog.LOG_PID,syslog.LOG_DAEMON)
 
 git_root=program_opt['spool_base'] + '/' +program_opt['repo_spool']
 
-git_cmd='git'
-
+git_cmd=program_opt['git_cmd']
 git_quiet_flag=''
 if program_opt['log_level'] < program_opt['git_verbose_level']:
         git_quiet_flag=' --quiet '
@@ -71,17 +85,15 @@ if program_opt['log_level'] < program_opt['git_verbose_level']:
 git_ssh_helper=program_opt['git_user_home']+'/git_ssh'
 git_user_key=program_opt['git_user_home']+'/.ssh/id_rsa'
 git_config_file=program_opt['git_user_home']+'/.gitconfig'
-git_revision='master'
+#git_revision='master'
 git_remote='origin'
 state_dir=program_opt['spool_base']+'/state'
 
 os.environ["GIT_SSH"]=git_ssh_helper
 os.environ["HOME"]=program_opt['git_user_home']
-
-#set home for git
-#export HOME=/home/automata
-#git_ssh_helper=$HOME/git_ssh
-#export GIT_SSH=$git_ssh_helper
+#######################################################################################################
+#}config second stage
+#######################################################################################################
 
 #######################################################################################################
 #{log libs
@@ -104,12 +116,18 @@ def log_and_die(error_message):
 #{git libs
 #######################################################################################################
 def git_suppress_out(command_line):
+        '''
+        Append shell null redirection for commands
+        '''
         if program_opt['log_level'] < program_opt['git_verbose_level']:
                 return command_line+' >> /dev/null 2>&1'
         else:
                 return command_line
 
 def git_clone(git_root,git_site):
+        '''
+        git clone wrapper
+        '''
         git_clone_cmd=git_suppress_out(git_cmd + ' clone ' + git_quiet_flag + git_site + ' ' + git_root)
         sys_rc=os.system(git_clone_cmd)
         #os.waitstatus_to_exitcode
@@ -120,6 +138,9 @@ def git_clone(git_root,git_site):
         
 
 def git_revparse(git_root,git_branch):
+        '''
+        git revparse wrapper get the actual local repo position
+        '''
         os.chdir(git_root)
         #FIXME add a proper way to handle git_quiet_flag
         branch_ref = 'none'
@@ -137,6 +158,9 @@ def git_revparse(git_root,git_branch):
         return branch_ref
 
 def git_add_file(git_root,add_file):
+        '''
+        Git ad a file no commit or push
+        '''
         os.chdir(git_root)
         
         git_add_cmd=git_suppress_out(git_cmd + ' add ' + add_file)
@@ -147,6 +171,9 @@ def git_add_file(git_root,add_file):
                 log_message(5,"git add "+ add_file+" ok")
 
 def git_commit(git_root,author_string,commit_message):
+        '''
+        Git commit wrapper
+        '''
         os.chdir(git_root)
         git_commit_cmd=git_suppress_out(git_cmd + ' commit ' + git_quiet_flag + ' --author "' + author_string + '" -m "' + commit_message + '"')
         print(git_commit_cmd)
@@ -158,6 +185,9 @@ def git_commit(git_root,author_string,commit_message):
                log_message(5,"git commit ok")
 
 def git_push(git_root):
+        '''
+        Git pull wrapper
+        '''
         os.chdir(git_root)
         git_push_cmd=git_suppress_out(git_cmd + ' push' + git_quiet_flag)
         sys_rc=os.system( git_push_cmd )
@@ -168,6 +198,9 @@ def git_push(git_root):
                 log_message(5,"git push ok")
 
 def git_fetch_spool(git_root,git_remote,git_branch):
+        '''
+        Sync an existing local repo dir
+        '''
         os.chdir(git_root)
         git_fetch_cmd=git_suppress_out(git_cmd + ' fetch' + git_quiet_flag)
         sys_rc=os.system( git_fetch_cmd)
@@ -188,6 +221,9 @@ def git_fetch_spool(git_root,git_remote,git_branch):
         return changed
 
 def git_prep_spool(git_root,git_site,git_remote,git_revision):
+        '''
+        Prepare spool directory with the latest up to date version
+        '''
         os.chdir(program_opt['spool_base'])
         changed=0
         if os.path.isdir(git_root+'/.git'):
@@ -209,6 +245,9 @@ def git_prep_spool(git_root,git_site,git_remote,git_revision):
 
 
 def git_check_sync(git_root,git_remote,git_revision):
+        '''
+        Check if local repo requires fetch+pull
+        '''
         os.chdir(git_root)
         local_commit=git_revparse(git_root,git_revision)
         remote_commit=git_revparse(git_root,git_remote + '/' + git_revision)
@@ -219,12 +258,15 @@ def git_check_sync(git_root,git_remote,git_revision):
                 return 0
 
 def git_check_branch(git_root,git_revision):
+        '''
+        Check if current position match revision
+        '''
         os.chdir(git_root)
-        current_branch=git_revparse(+git_root,'--abbrev-ref HEAD')
+        current_branch=git_revparse(git_root,'--abbrev-ref HEAD')
         if git_revision == current_branch:
-                return 1
+                return True
         else:
-                return 0
+                return False
 
 #######################################################################################################
 #}git libs
@@ -234,8 +276,11 @@ def git_check_branch(git_root,git_revision):
 #######################################################################################################
 
 def time_daystring(to_cnv):
-        now_string=to_cnv.strftime("%Y%m%d%H%M%S")
-        return now_string
+    '''
+    Format daystring  for commit
+    '''
+    now_string=to_cnv.strftime("%Y%m%d%H%M%S")
+    return now_string
 #
 #######################################################################################################
 #}defs and utils
@@ -244,6 +289,9 @@ def time_daystring(to_cnv):
 #{sync libs
 #######################################################################################################
 def need_update(src_path,dst_path):
+    '''
+    Check if a mapped file will require copy and update
+    '''
     if not os.path.isfile(dst_path):
         log_message(2,"need_update: %s new file" % dst_path)
         return True
@@ -274,7 +322,7 @@ def add_element(push_base,dest_prefix,push_element):
             #copy file
             shutil.copyfile(src_path,dst_path)
             #add to git
-            git_add_file(git_root,push_element)
+            git_add_file(git_root,dest_prefix+push_element)
             return_changed=True
 
     elif os.path.isdir(src_path):
@@ -286,7 +334,7 @@ def add_element(push_base,dest_prefix,push_element):
             dst_subpath=os.path.join(dst_path,src_f)
             if os.path.isfile(src_subpath) and need_update(src_subpath,dst_subpath):
                 shutil.copyfile(src_subpath,dst_subpath)
-                git_add_file(git_root,os.path.join(push_element,src_f))
+                git_add_file(git_root,os.path.join(dest_prefix+push_element,src_f))
                 return_changed=True
     else:
         log_message(0,"original file %s missing" % src_path)
@@ -310,7 +358,7 @@ def push_schema(schema_name,schema_to_push):
         log_message(2,"schema %s no push_files to push" % schema_name)
     else:
         for push_elem in schema_to_push['push_files']:
-            log_message(2,"schema %s add element %s" % (schema_name,push_elem) )
+            log_message(2,"schema %s add element %s" % (schema_name,dest_prefix+push_elem) )
             if add_element(schema_to_push['push_dir'],dest_prefix,push_elem):
                 return_changed=True
     #final return
@@ -355,7 +403,7 @@ log_message(0,'sync start')
 #daystring=time_daystring(time)
 
 log_message(0,'git pull...')
-changed=git_prep_spool(git_root,program_opt['git_site'],git_remote,git_revision)
+changed=git_prep_spool(git_root,program_opt['git_site'],git_remote,program_opt['git_revision'])
 log_message(0,'pull complete')
 log_message(0,'git add commit push...')
 push_phase()
