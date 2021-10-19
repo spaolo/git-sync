@@ -95,6 +95,7 @@ log_level: 2
 git_verbose_level: 5
 repo_spool: git-sync
 git_site: git@github.com:spaolo/git-sync.git
+git_branch: master
 git_user_home: /home/git-sync/
 ```
 

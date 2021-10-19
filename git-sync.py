@@ -15,7 +15,7 @@ program_opt={
         'config_file'       : "/home/git-sync/git-sync.yaml",
         'git_site'          : 'git@github.com:spaolo/git-sync.git',
         'git_cmd'           : 'git',
-        'git_revision'      : 'master',
+        'git_branch'        : 'master',
         'git_user_home'     : '/home/git-sync/',
         'git_author_name'   : 'Author Name',
         'git_author_mail'   : 'author@example.com',
@@ -85,7 +85,7 @@ if program_opt['log_level'] < program_opt['git_verbose_level']:
 git_ssh_helper=program_opt['git_user_home']+'/git_ssh'
 git_user_key=program_opt['git_user_home']+'/.ssh/id_rsa'
 git_config_file=program_opt['git_user_home']+'/.gitconfig'
-#git_revision='master'
+#git_branch='master'
 git_remote='origin'
 state_dir=program_opt['spool_base']+'/state'
 
@@ -210,6 +210,15 @@ def git_fetch_spool(git_root,git_remote,git_branch):
                 log_and_die("git fetch " + git_root + " failed")
         else:
                 log_message(5,"git fetch " + git_root +" ok")
+        #change branch if needed
+        if not git_check_branch(git_root,git_branch):
+                git_checkout_cmd=git_suppress_out(git_cmd+' checkout '+git_quiet_flag+git_branch)
+                sys_rc=os.system(git_checkout_cmd)
+                if (sys_rc>>8) == 1:
+                        log_and_die("git checkout %s %s failed" % (git_root,git_branch) )
+                else:
+                        log_message(5,"git checkout %s ok" % git_root)
+
         #set changed not synked for return
         git_reset_cmd=git_suppress_out(git_cmd+' reset '+git_quiet_flag+'--hard '+git_remote+'/'+git_branch)
         sys_rc=os.system(git_reset_cmd)
@@ -219,7 +228,7 @@ def git_fetch_spool(git_root,git_remote,git_branch):
         else:
                 log_message(5,"git reset " + git_root +" ok")
 
-def git_prep_spool(git_root,git_site,git_remote,git_revision):
+def git_prep_spool(git_root,git_site,git_remote,git_branch):
         '''
         Prepare spool directory with the latest up to date version
         '''
@@ -228,8 +237,8 @@ def git_prep_spool(git_root,git_site,git_remote,git_revision):
         if os.path.isdir(git_root+'/.git'):
                 os.chdir(git_root)
                 #spool is present fetch and update
-                git_fetch_spool(git_root,git_remote,git_revision)
-                if not git_check_sync(git_root,git_remote,git_revision):
+                git_fetch_spool(git_root,git_remote,git_branch)
+                if not git_check_sync(git_root,git_remote,git_branch):
                         log_message(5,"git spool out of sync rebuild")
                         os.rename(git_root, git_root+'.'+ str(time.time()))
                         os.makedirs(git_root, exist_ok=True)
@@ -238,18 +247,18 @@ def git_prep_spool(git_root,git_site,git_remote,git_revision):
                         changed=True
         else:
                 git_clone(git_root,git_site)
-                changed=git_fetch_spool(git_root,git_remote,git_revision)
+                changed=git_fetch_spool(git_root,git_remote,git_branch)
                 changed=True
         return changed
 
 
-def git_check_sync(git_root,git_remote,git_revision):
+def git_check_sync(git_root,git_remote,git_branch):
         '''
         Check if local repo requires fetch+pull
         '''
         os.chdir(git_root)
-        local_commit=git_revparse(git_root,git_revision)
-        remote_commit=git_revparse(git_root,git_remote + '/' + git_revision)
+        local_commit=git_revparse(git_root,git_branch)
+        remote_commit=git_revparse(git_root,git_remote + '/' + git_branch)
         log_message(15,"local_commit %s remote_commit %s" %( local_commit, remote_commit)) 
 
         if ( local_commit == remote_commit ):
@@ -257,13 +266,13 @@ def git_check_sync(git_root,git_remote,git_revision):
         else:
                 return False
 
-def git_check_branch(git_root,git_revision):
+def git_check_branch(git_root,git_branch):
         '''
         Check if current position match revision
         '''
         os.chdir(git_root)
         current_branch=git_revparse(git_root,'--abbrev-ref HEAD')
-        if git_revision == current_branch:
+        if git_branch == current_branch:
                 return True
         else:
                 return False
@@ -403,7 +412,7 @@ log_message(0,'sync start')
 #daystring=time_daystring(time)
 
 log_message(0,'git pull...')
-changed=git_prep_spool(git_root,program_opt['git_site'],git_remote,program_opt['git_revision'])
+changed=git_prep_spool(git_root,program_opt['git_site'],git_remote,program_opt['git_branch'])
 log_message(0,'pull complete')
 log_message(0,'git add commit push...')
 push_phase()
